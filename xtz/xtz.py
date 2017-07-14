@@ -170,8 +170,7 @@ class Inject(str):
 
 LastInput = TypeVar('LastInput')
 
-
-class _DeferPipeCall(object):
+class _DeferredPipeCall(object):
     def __init__(self, orig_call_str, func, args, kwargs, log_step=True):
         self.orig_call_str = orig_call_str
         self.func = func
@@ -282,7 +281,7 @@ def pipe(f=None, log_step=True):
         else:
             if Pipeline.interactive_active:
                 # in interactive repl
-                defer_pipe_call = _DeferPipeCall(
+                defer_pipe_call = _DeferredPipeCall(
                     '', f, args, kwargs, log_step=log_step)
                 Pipeline.active_pipeline.execute_interactive_step(
                     defer_pipe_call)
@@ -290,7 +289,7 @@ def pipe(f=None, log_step=True):
 
             if Pipeline.active_context is not None:
                 # active context (nested pipe calls)
-                defer_pipe_call = _DeferPipeCall(
+                defer_pipe_call = _DeferredPipeCall(
                     '', f, args, kwargs, log_step=log_step)
                 return Pipeline.active_pipeline.execute_runtime_step(defer_pipe_call)
             else:
@@ -306,10 +305,10 @@ def pipe(f=None, log_step=True):
                     lineno -= 1
                 code_context = textwrap.dedent(code_context.rstrip())
 
-                defer_pipe_call = _DeferPipeCall(
+                defer_pipe_call = _DeferredPipeCall(
                     code_context, f, args, kwargs, log_step=log_step)
                 Pipeline.active_pipeline.record_step(defer_pipe_call)
-                return f
+                return defer_pipe_call
 
     if f is not None:
         return decorator.decorate(f, _pipe)
@@ -334,7 +333,7 @@ class Pipeline(object):
         self.inject = inject
         self.logger = logger
         self.inject_fail_on_none = inject_fail_on_none
-        self.steps: List[_DeferPipeCall] = []
+        self.steps: List[_DeferredPipeCall] = []
 
     def record(self) -> None:
         if Pipeline.active_pipeline is not None:
@@ -342,7 +341,7 @@ class Pipeline(object):
         Pipeline.active_pipeline = self
         self.steps = []
 
-    def record_step(self, defer_pipe_call: _DeferPipeCall) -> None:
+    def record_step(self, defer_pipe_call: _DeferredPipeCall) -> None:
         if Pipeline.active_context is not None:
             raise RuntimeError("Can't record steps during pipeline execution")
         defer_pipe_call.bind(self.inject, self.inject_fail_on_none)
@@ -511,6 +510,7 @@ class Pipeline(object):
                     self.logger.exception(
                         "Exception while executing '%s()' at step %d",
                         step.func.__name__, i)
+                Pipeline.active_pipeline = None
                 raise
             end = time.time()
 
@@ -574,7 +574,7 @@ class PipelineExecutionContext(object):
         self._log_stack = value
 
 
-def run(steps: List[_DeferPipeCall],
+def run(steps: List[_DeferredPipeCall],
         inject: Mapping[str, object]=None,
         logger: logging.Logger=None,
         inject_fail_on_none=False) -> object:

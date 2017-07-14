@@ -13,4 +13,5 @@ setup(name='xtz',
           'ptpython',
           'decorator'
           ],
+      test_suite='tests',
       zip_safe=False)
