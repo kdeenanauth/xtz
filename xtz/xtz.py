@@ -213,6 +213,8 @@ class _DeferredPipeCall(object):
                             param.default)]
                     elif inject_fail_on_none:
                         inject_errors.append((param.name, str(param.default)))
+                    else:
+                        injecting_kwargs[param.name] = None
                 elif self.orig_args[i] != None and self.orig_args[i] != LastInput:
                     # it was passed in specfically
                     injecting_kwargs[param.name] = self.orig_args[i]
@@ -314,7 +316,6 @@ def pipe(f=None, log_step=True):
         return decorator.decorate(f, _pipe)
     else:
         return decorator.decorator(_pipe)
-
 
 class Pipeline(object):
     disable_colors: bool = False
@@ -492,7 +493,7 @@ class Pipeline(object):
 
         i = 0
         for step in self.steps:
-            if self.logger != None:
+            if self.logger != None and step.log_step:
                 start_group(step.func.__name__)
 
             if step.log_step:
@@ -511,18 +512,19 @@ class Pipeline(object):
                         "Exception while executing '%s()' at step %d",
                         step.func.__name__, i)
                 Pipeline.active_pipeline = None
+                Pipeline.active_context = None
                 raise
             end = time.time()
 
-            if self.logger != None:
+            if self.logger != None and step.log_step:
                 end_group()
-                if step.log_step:
-                    self.logger.info(
-                        ">> Finished step %d of %d in %s",
-                        i,
-                        total_steps,
-                        datetime.timedelta(seconds=end - start))
+                self.logger.info(
+                    ">> Finished step %d of %d in %s",
+                    i,
+                    total_steps,
+                    datetime.timedelta(seconds=end - start))
         total_end = time.time()
+        Pipeline.active_context.end_time = datetime.datetime.utcnow()
 
         if self.logger != None:
             self.logger.info(
@@ -573,19 +575,24 @@ class PipelineExecutionContext(object):
     def log_stack(self, value: List[logging.Logger]):
         self._log_stack = value
 
+class QuickRecordRun(object):
+    def __init__(self, pipeline: Pipeline):
+        self._pipeline = pipeline
 
-def run(steps: List[_DeferredPipeCall],
-        inject: Mapping[str, object]=None,
-        logger: logging.Logger=None,
-        inject_fail_on_none=False) -> object:
-    # TODO - make *steps
+    @property
+    def pipeline(self):
+        return self._pipeline
+
+    def run(self, *steps, interactive=False):
+        return self.pipeline.execute(interactive)
+
+def record(inject: Mapping[str, object]=None,
+           logger: logging.Logger=None,
+           inject_fail_on_none=False):
     pipeline: Pipeline = Pipeline(
         inject=inject, logger=logger, inject_fail_on_none=inject_fail_on_none)
     pipeline.record()
-    for step in steps:
-        pipeline.record_step(step)
-    return pipeline.execute()
-
+    return QuickRecordRun(pipeline)
 
 @pipe(log_step=False)
 def start_group(group: str, context: PipelineExecutionContext=None):
