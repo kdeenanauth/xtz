@@ -1,3 +1,5 @@
+[![No Maintenance Intended](http://unmaintained.tech/badge.svg)](http://unmaintained.tech/)
+
 # xtz
 
 The xtz module provides an environment to easily inject dependencies, log and debug
